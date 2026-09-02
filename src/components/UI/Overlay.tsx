@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSimulationStore } from '../../store/useSimulationStore';
 import type { ViewMode } from '../../store/useSimulationStore';
-import { Play, Pause, RotateCcw, Sun, Moon, Radio } from 'lucide-react';
+import { Play, Pause, RotateCcw, Sun, Moon, Radio, Globe } from 'lucide-react';
 import { VortexText } from './VortexLogo';
 
 const MODES: { id: ViewMode; label: string; Icon: React.FC<{ size: number }> }[] = [
@@ -11,7 +11,7 @@ const MODES: { id: ViewMode; label: string; Icon: React.FC<{ size: number }> }[]
 ];
 
 export function Overlay() {
-  const { isPaused, togglePause, resetTime, viewMode, setViewMode } = useSimulationStore();
+  const { isPaused, togglePause, resetTime, viewMode, setViewMode, isExploring, toggleExplore } = useSimulationStore();
   const [timeString, setTimeString] = useState('');
 
   useEffect(() => {
@@ -26,6 +26,17 @@ export function Overlay() {
     return () => clearInterval(interval);
   }, []);
 
+  // ESC exits explore mode
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && useSimulationStore.getState().isExploring) {
+        toggleExplore();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleExplore]);
+
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
 
@@ -37,15 +48,33 @@ export function Overlay() {
         <VortexText />
       </div>
 
-      {/* ─── TOP RIGHT: Day / Night / Live toggle ─── */}
+      {/* ─── TOP RIGHT: Day / Night / Live toggle + Explore ─── */}
       <div
         style={{ position: 'absolute', top: 32, right: 32 }}
         className="pointer-events-auto flex flex-col gap-1 items-end"
       >
-        {/* Toggle pill */}
-        <div
-          className="flex items-center gap-px bg-black/40 backdrop-blur-md border border-white/10 rounded-full p-1"
-        >
+        {/* Controls row: toggle pill + explore button side by side */}
+        <div className="flex items-center gap-2">
+          {/* Explore button */}
+          <button
+            id="explore-btn"
+            onClick={toggleExplore}
+            title={isExploring ? 'Exit Explore (Esc)' : 'Explore Earth'}
+            className={[
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono tracking-widest border transition-all duration-300',
+              isExploring
+                ? 'bg-emerald-500/80 border-emerald-400/50 text-white shadow-lg shadow-emerald-500/30 animate-pulse'
+                : 'bg-black/40 backdrop-blur-md border-white/10 text-white/60 hover:text-white hover:border-white/30 hover:bg-white/10',
+            ].join(' ')}
+          >
+            <Globe size={11} />
+            {isExploring ? 'EXIT' : 'EXPLORE'}
+          </button>
+
+          {/* Toggle pill */}
+          <div
+            className="flex items-center gap-px bg-black/40 backdrop-blur-md border border-white/10 rounded-full p-1"
+          >
           {MODES.map(({ id, label, Icon }) => {
             const active = viewMode === id;
             return (
@@ -69,6 +98,7 @@ export function Overlay() {
               </button>
             );
           })}
+          </div>
         </div>
         
         {/* Status and Time */}
