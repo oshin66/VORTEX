@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber';
 
+
 import { Suspense } from 'react';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { Earth } from './components/Earth/Earth';
