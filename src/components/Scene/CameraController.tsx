@@ -17,6 +17,7 @@ export function CameraController() {
 
   // Track current animated target so we can lerp smoothly
   const targetPos = useRef(DEFAULT_POS.clone());
+  const isTransitioning = useRef(false);
 
   useEffect(() => {
     // Initial cinematic camera position
@@ -30,6 +31,7 @@ export function CameraController() {
           controlsRef.current.target.set(0, 0, 0);
           controlsRef.current.update();
         }
+        isTransitioning.current = false;
       }
     };
 
@@ -46,19 +48,27 @@ export function CameraController() {
   // When explore mode changes, set the target we want to lerp toward
   useEffect(() => {
     targetPos.current = isExploring ? EXPLORE_POS.clone() : DEFAULT_POS.clone();
+    isTransitioning.current = true;
   }, [isExploring]);
 
   useFrame(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
 
-    // Smoothly lerp camera position toward the target
-    const lerpSpeed = 0.04; // lower = smoother / slower
-    camera.position.lerp(targetPos.current, lerpSpeed);
-    camera.lookAt(0, 0, 0);
+    if (isTransitioning.current) {
+      // Smoothly lerp camera position toward the target
+      const lerpSpeed = 0.04; // lower = smoother / slower
+      camera.position.lerp(targetPos.current, lerpSpeed);
+      camera.lookAt(0, 0, 0);
 
-    if (controlsRef.current) {
-      controlsRef.current.target.lerp(new THREE.Vector3(0, 0, 0), 0.1);
-      controlsRef.current.update();
+      if (controlsRef.current) {
+        controlsRef.current.target.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+        controlsRef.current.update();
+      }
+
+      // Stop transitioning once we are close enough to the target
+      if (camera.position.distanceTo(targetPos.current) < 0.01) {
+        isTransitioning.current = false;
+      }
     }
   });
 
@@ -74,6 +84,10 @@ export function CameraController() {
       minDistance={1.4}
       maxDistance={6.0}
       target={new THREE.Vector3(0, 0, 0)}
+      onStart={() => {
+        // If the user interacts with the camera, stop the programmatic transition immediately
+        isTransitioning.current = false;
+      }}
     />
   );
 }
