@@ -91,9 +91,6 @@ export function CameraController() {
       startTargetRef.current.copy(DEFAULT_TARGET);
     }
 
-    const currentRadiusXZ = Math.sqrt(
-      camera.position.x * camera.position.x + camera.position.z * camera.position.z
-    );
     const currentAngle = Math.atan2(camera.position.x, camera.position.z);
     startAngleRef.current = currentAngle;
 
