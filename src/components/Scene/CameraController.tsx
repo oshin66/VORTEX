@@ -41,6 +41,10 @@ export function CameraController() {
   const targetYRef = useRef(0);
   const targetLookAtRef = useRef(new THREE.Vector3());
 
+  // Track initial mount so we don't trigger an animation on first page load
+  const isInitialMountRef = useRef(true);
+  const tempTargetRef = useRef(new THREE.Vector3());
+
   useEffect(() => {
     // Initial camera setup
     const initCamera = () => {
@@ -72,6 +76,12 @@ export function CameraController() {
   // Trigger animation whenever isExploring changes
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
+
+    // Skip animation on initial component mount if not exploring
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      if (!isExploring) return;
+    }
 
     // Capture current start state
     startPosRef.current.copy(camera.position);
@@ -138,17 +148,17 @@ export function CameraController() {
       currentRadiusXZ * Math.cos(currentAngle)
     );
 
-    // Interpolate look-at target
-    const currentTarget = new THREE.Vector3().lerpVectors(
+    // Interpolate look-at target into persistent Vector3 ref to prevent GC allocations
+    tempTargetRef.current.lerpVectors(
       startTargetRef.current,
       targetLookAtRef.current,
       descendProgress
     );
 
-    camera.lookAt(currentTarget);
+    camera.lookAt(tempTargetRef.current);
 
     if (controlsRef.current) {
-      controlsRef.current.target.copy(currentTarget);
+      controlsRef.current.target.copy(tempTargetRef.current);
       controlsRef.current.update();
     }
 
