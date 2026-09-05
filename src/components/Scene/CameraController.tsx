@@ -10,12 +10,11 @@ const DEFAULT_POS    = new THREE.Vector3(0, 0, 2.0);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
 
 // Explore mode target geometry: 
-// Distance ~1.57x sphere radius (R = 1.0), angled looking upwards at Y = +0.52
-// so the curved horizon has comfortable breathing room below top UI controls
-// and subtle black space margins on left and right sides.
-const EXPLORE_TARGET_Y = -0.38;
-const EXPLORE_RADIUS_XZ = 1.52; // dist to center = sqrt(0.38^2 + 1.52^2) = 1.567 R
-const EXPLORE_LOOKAT    = new THREE.Vector3(0, 0.52, 0);
+// Distance ~1.70x sphere radius (R = 1.0), angled looking upwards at Y = +0.65
+// so the Earth moves further down in the frame with ample space above and overall.
+const EXPLORE_TARGET_Y = -0.42;
+const EXPLORE_RADIUS_XZ = 1.65; // dist to center = sqrt(0.42^2 + 1.65^2) = 1.70 R
+const EXPLORE_LOOKAT    = new THREE.Vector3(0, 0.65, 0);
 
 // Cubic easing curve for weighty, cinematic motion
 function easeInOutCubic(x: number): number {
