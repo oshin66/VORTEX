@@ -1,12 +1,6 @@
 import { useMemo } from 'react';
-import { useSimulationStore } from '../../store/useSimulationStore';
 
 export function StarField() {
-  const viewMode = useSimulationStore((state) => state.viewMode);
-
-  if (viewMode === 'night') {
-    return null; // Pure flat black background (#000000) for Night View
-  }
   const count = 15000;
   
   const [positions, colors, sizes] = useMemo(() => {

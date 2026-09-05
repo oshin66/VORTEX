@@ -36,9 +36,9 @@ export default function App() {
         <EffectComposer>
           <Bloom
             mipmapBlur
-            luminanceThreshold={0.85}
-            intensity={1.5}
-            radius={0.75}
+            luminanceThreshold={1.0}
+            intensity={1.42}
+            radius={0.8}
           />
         </EffectComposer>
       </Canvas>
