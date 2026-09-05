@@ -9,11 +9,13 @@ import { useSimulationStore } from '../../store/useSimulationStore';
 const DEFAULT_POS    = new THREE.Vector3(0, 0, 2.0);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
 
-// Explore mode target geometry: low altitude (dist = 1.15x R), angled looking slightly below center
-// so top edge of globe forms a prominent curved horizon in upper 1/3 of screen
-const EXPLORE_TARGET_Y = -0.65;
-const EXPLORE_RADIUS_XZ = 0.95; // dist to center = sqrt(0.65^2 + 0.95^2) = 1.151 R
-const EXPLORE_LOOKAT    = new THREE.Vector3(0, -0.22, 0);
+// Explore mode target geometry: 
+// Distance ~1.44x sphere radius (R = 1.0), angled looking upwards at Y = +0.42
+// so the curved horizon forms a gentle arc in the lower 35-45% of the viewport,
+// leaving top 55-65% of the frame as open dark space with stars.
+const EXPLORE_TARGET_Y = -0.35;
+const EXPLORE_RADIUS_XZ = 1.40; // dist to center = sqrt(0.35^2 + 1.40^2) = 1.443 R
+const EXPLORE_LOOKAT    = new THREE.Vector3(0, 0.42, 0);
 
 // Cubic easing curve for weighty, cinematic motion
 function easeInOutCubic(x: number): number {
@@ -37,7 +39,7 @@ export function CameraController() {
   const startTargetRef = useRef(new THREE.Vector3());
   const startAngleRef = useRef(0);
   const targetAngleRef = useRef(0);
-  const targetRadiusXZRef = useRef(0.95);
+  const targetRadiusXZRef = useRef(EXPLORE_RADIUS_XZ);
   const targetYRef = useRef(0);
   const targetLookAtRef = useRef(new THREE.Vector3());
 
@@ -167,7 +169,7 @@ export function CameraController() {
       if (controlsRef.current) {
         controlsRef.current.enabled = true; // Re-enable OrbitControls for free viewing!
         controlsRef.current.target.copy(targetLookAtRef.current);
-        controlsRef.current.minDistance = 1.05;
+        controlsRef.current.minDistance = 1.2;
         controlsRef.current.maxDistance = 6.0;
         controlsRef.current.update();
       }
@@ -183,7 +185,7 @@ export function CameraController() {
       enableDamping={true}
       dampingFactor={0.1}
       autoRotate={false}
-      minDistance={1.05}
+      minDistance={1.2}
       maxDistance={6.0}
       target={DEFAULT_TARGET}
     />
