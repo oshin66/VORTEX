@@ -77,62 +77,67 @@ export const earthFragmentShader = `
     vec3 dayFace = mix(dayShadow, dayLit, terminator);
 
     // ================================================================
-    // 2. NIGHT TEXTURE (City Lights & Dark Ocean)
+    // 2. STYLIZED NIGHT MODE (uViewMode == 1.0)
     // ================================================================
-    vec3 oceanDark   = vec3(0.012, 0.020, 0.045);
-    vec3 oceanLight  = vec3(0.045, 0.10, 0.22);
-    // Ocean gets subtle directional volume on the lit side too
-    float oceanLit   = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * 0.15;
-    vec3 oceanColor  = mix(oceanDark, oceanLight, oceanLit);
+    // A. Base Sphere: Deep near-black navy (#050810 to #0A1420)
+    vec3 nightNavyBase = vec3(0.020, 0.031, 0.063);
     
-    vec3 landColor   = vec3(0.22, 0.25, 0.18) * 0.12;
-    vec3 nightSurface = mix(landColor, oceanColor, smoothstep(0.0, 0.1, specStr));
+    // B. City Lights: Sourced from real texture data, bold warm-gold amber palette
+    float rawLum   = dot(nightColor, vec3(0.299, 0.587, 0.114));
+    float cityMask = smoothstep(0.08, 0.45, rawLum); // bold cluster mask
     
-    vec3 cloudTintN  = vec3(0.82, 0.85, 0.88);
-    nightSurface = mix(nightSurface, cloudTintN, cloudMask * 0.30);
+    vec3 sparseGold = vec3(0.788, 0.478, 0.188); // #C97A30
+    vec3 midGold    = vec3(1.0, 0.72, 0.30);    // #FFB84D / #E08A3C
+    vec3 coreGold   = vec3(1.0, 0.85, 0.54);    // #FFD98A
+    vec3 hotWhite   = vec3(1.5, 1.4, 1.3);     // bloom bleed core
+    
+    vec3 goldColorMap = mix(
+      mix(sparseGold, midGold, smoothstep(0.0, 0.35, cityMask)),
+      mix(coreGold, hotWhite, smoothstep(0.7, 1.0, cityMask)),
+      smoothstep(0.35, 0.7, cityMask)
+    );
+    float nightCityIntensity = pow(cityMask, 1.1) * 6.5;
+    vec3 nightCityLights = goldColorMap * nightCityIntensity;
 
-    // City lights — only on the dark side (fade out on the lit side)
-    float rawLum     = dot(nightColor, vec3(0.299, 0.587, 0.114));
-    float cityMask   = smoothstep(0.15, 0.50, rawLum);
-    float nightGate  = 1.0 - smoothstep(-0.1, 0.2, NdotL); // fade lights in shadow
-    vec3 sparseCity  = vec3(0.7, 0.4, 0.1); 
-    vec3 midCity     = vec3(1.0, 0.78, 0.3); 
-    vec3 coreCity    = vec3(1.0, 0.87, 0.54); 
-    vec3 cityColorMap = mix(mix(sparseCity, midCity, smoothstep(0.0, 0.5, cityMask)), coreCity, smoothstep(0.5, 1.0, cityMask));
-    float cityIntensity = pow(cityMask, 1.2) * 5.0 * nightGate;
-    nightSurface += cityColorMap * cityIntensity;
-    
-    vec3 nightFace = nightSurface;
-
-    // ================================================================
-    // 3. ATMOSPHERIC RIM — only on the sunlit limb
-    // ================================================================
+    // C. Atmospheric Rim Halo: 360° uniform cyan-blue glow (#4FB8F0 to #6FD0FF)
+    // Angle-independent around full circumference (not gated by sun NdotL)
     float NdotV  = clamp(dot(normal, viewDir), 0.0, 1.0);
-    float fresnel = pow(1.0 - NdotV, 4.5);
-    // Gate: rim appears only where sun hits the edge (not on dark side)
+    float fresnel = pow(1.0 - NdotV, 3.8); // smooth inward/outward falloff
+    
+    vec3 cyanOuter = vec3(0.31, 0.72, 0.94);  // #4FB8F0
+    vec3 cyanCore  = vec3(0.435, 0.815, 1.0); // #6FD0FF
+    vec3 cyanRimColor = mix(cyanOuter, cyanCore, pow(fresnel, 1.2));
+    vec3 nightRimHalo = cyanRimColor * fresnel * 2.5 * uAtmosphereBoost;
+
+    vec3 nightModeFace = nightNavyBase + nightCityLights + nightRimHalo;
+
+    // ================================================================
+    // 3. PHOTOREAL SUNLIT LIMB (for Day & Live modes)
+    // ================================================================
+    float dayFresnel = pow(1.0 - NdotV, 4.5);
     float rimGate = smoothstep(-0.1, 0.25, NdotL);
     vec3 rimCore  = vec3(0.40, 0.80, 1.0);
     vec3 rimOuter = vec3(0.20, 0.60, 0.98);
-    vec3 rimColor = mix(rimOuter, rimCore, pow(fresnel, 1.2));
-    vec3 atmosphereRim = rimColor * fresnel * rimGate * 1.5 * uAtmosphereBoost;
+    vec3 rimColor = mix(rimOuter, rimCore, pow(dayFresnel, 1.2));
+    vec3 dayAtmosphereRim = rimColor * dayFresnel * rimGate * 1.5 * uAtmosphereBoost;
 
     // ================================================================
     // 4. COMBINE BASED ON VIEW MODE
     // ================================================================
     vec3 finalColor;
     if (uViewMode < 0.5) {
-      // DAY MODE: Day texture with real terminator shadow
-      finalColor = dayFace;
+      // DAY MODE: Day texture with real terminator shadow + sunlit rim
+      finalColor = dayFace + dayAtmosphereRim;
     } else if (uViewMode < 1.5) {
-      // NIGHT MODE: Night texture globally, but sunlit rim still visible
-      finalColor = nightFace;
+      // NIGHT MODE: Stylized uniform dark navy + gold city lights + 360° cyan rim
+      finalColor = nightModeFace;
     } else {
       // LIVE MODE: Day on lit side, night lights on dark side
-      finalColor = mix(nightFace, dayFace, terminator);
+      vec3 liveNight = nightNavyBase + (nightCityLights * (1.0 - smoothstep(-0.1, 0.2, NdotL)));
+      finalColor = mix(liveNight, dayFace, terminator) + dayAtmosphereRim;
     }
     
-    finalColor += atmosphereRim;
-    finalColor = clamp(finalColor, 0.0, 1.0);
+    finalColor = clamp(finalColor, 0.0, 3.0);
     
     gl_FragColor = vec4(finalColor, 1.0);
   }
