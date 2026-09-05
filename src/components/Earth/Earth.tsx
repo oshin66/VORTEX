@@ -34,7 +34,7 @@ export function Earth() {
     '/textures/earth_specular_2048.jpg',
   ]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (!isPaused) {
       useSimulationStore.getState().updateTime(delta * 1000);
     }
@@ -42,19 +42,25 @@ export function Earth() {
     const mode    = useSimulationStore.getState().viewMode;
     const modeVal = mode === 'day' ? 0.0 : mode === 'night' ? 1.0 : 2.0;
 
+    // Dynamic atmosphere glow boost based on camera distance (closer = stronger limb glow)
+    const camDist = state.camera.position.length();
+    // 2.0 (far) -> 1.0 boost, ~1.15 (close explore) -> ~1.8 boost
+    const atmosphereBoost = THREE.MathUtils.clamp(1.0 + (2.0 - camDist) * 0.95, 1.0, 1.85);
+
     // ── Update Earth material uniforms directly via ref ──
     if (earthMatRef.current) {
       const u = earthMatRef.current.uniforms;
-      u.tDiffuse.value     = colorMap;
-      u.tNight.value       = nightMap;
-      u.tClouds.value      = cloudsMap;
-      u.tSpecular.value    = specularMap;
+      u.tDiffuse.value         = colorMap;
+      u.tNight.value           = nightMap;
+      u.tClouds.value          = cloudsMap;
+      u.tSpecular.value        = specularMap;
       // Sun direction is FIXED in world space — do NOT rotate it with the earth
       u.sunDirection.value.copy(FIXED_SUN_DIRECTION);
-      u.uViewMode.value    = modeVal;
+      u.uViewMode.value        = modeVal;
+      u.uAtmosphereBoost.value = atmosphereBoost;
     }
 
-    // ── Smooth Earth rotation (full turn ≈75 s) ──
+    // ── Smooth Earth rotation (full turn ≈90 s) ──
     if (earthRef.current) {
        rotationRef.current += delta * (2 * Math.PI / 90); // ~1 full rotation every 90 s
       earthRef.current.rotation.y = rotationRef.current;
@@ -70,12 +76,13 @@ export function Earth() {
 
   // Initial uniform objects (created once — actual values driven by useFrame via ref)
   const earthUniforms = {
-    tDiffuse:     { value: colorMap },
-    tNight:       { value: nightMap },
-    tClouds:      { value: cloudsMap },
-    tSpecular:    { value: specularMap },
-    sunDirection: { value: FIXED_SUN_DIRECTION.clone() },
-    uViewMode:    { value: 0.0 },
+    tDiffuse:         { value: colorMap },
+    tNight:           { value: nightMap },
+    tClouds:          { value: cloudsMap },
+    tSpecular:        { value: specularMap },
+    sunDirection:     { value: FIXED_SUN_DIRECTION.clone() },
+    uViewMode:        { value: 0.0 },
+    uAtmosphereBoost: { value: 1.0 },
   };
 
   return (

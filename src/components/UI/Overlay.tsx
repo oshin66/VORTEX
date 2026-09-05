@@ -11,7 +11,7 @@ const MODES: { id: ViewMode; label: string; Icon: React.FC<{ size: number }> }[]
 ];
 
 export function Overlay() {
-  const { isPaused, togglePause, resetTime, viewMode, setViewMode, isExploring, toggleExplore } = useSimulationStore();
+  const { isPaused, togglePause, resetTime, viewMode, setViewMode, isExploring, toggleExplore, isAnimating } = useSimulationStore();
   const [timeString, setTimeString] = useState('');
 
   useEffect(() => {
@@ -59,15 +59,17 @@ export function Overlay() {
           <button
             id="explore-btn"
             onClick={toggleExplore}
+            disabled={isAnimating}
             title={isExploring ? 'Exit Explore (Esc)' : 'Explore Earth'}
             className={[
               'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono tracking-widest border transition-all duration-300',
               isExploring
-                ? 'bg-emerald-500/80 border-emerald-400/50 text-white shadow-lg shadow-emerald-500/30 animate-pulse'
+                ? 'bg-emerald-500/80 border-emerald-400/50 text-white shadow-lg shadow-emerald-500/30'
                 : 'bg-black/40 backdrop-blur-md border-white/10 text-white/60 hover:text-white hover:border-white/30 hover:bg-white/10',
+              isAnimating ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
             ].join(' ')}
           >
-            <Globe size={11} />
+            <Globe size={11} className={isAnimating ? 'animate-spin' : ''} />
             {isExploring ? 'EXIT' : 'EXPLORE'}
           </button>
 

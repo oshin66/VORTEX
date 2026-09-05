@@ -8,12 +8,14 @@ interface SimulationState {
   simulationTime: number; // UNIX timestamp in milliseconds
   viewMode: ViewMode;
   isExploring: boolean;
+  isAnimating: boolean;
   togglePause: () => void;
   setSpeed: (multiplier: number) => void;
   updateTime: (deltaTime: number) => void;
   resetTime: () => void;
   setViewMode: (mode: ViewMode) => void;
   toggleExplore: () => void;
+  setIsAnimating: (animating: boolean) => void;
 }
 
 export const useSimulationStore = create<SimulationState>((set) => ({
@@ -22,6 +24,7 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   simulationTime: Date.now(),
   viewMode: 'day', // default to day
   isExploring: false,
+  isAnimating: false,
   togglePause: () => set((state) => ({ isPaused: !state.isPaused })),
   setSpeed: (multiplier) => set({ timeMultiplier: multiplier }),
   updateTime: (deltaTime) => set((state) => ({
@@ -30,4 +33,5 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   resetTime: () => set({ simulationTime: Date.now() }),
   setViewMode: (mode) => set({ viewMode: mode }),
   toggleExplore: () => set((state) => ({ isExploring: !state.isExploring })),
+  setIsAnimating: (animating) => set({ isAnimating: animating }),
 }))

@@ -23,6 +23,7 @@ export const earthFragmentShader = `
 
   uniform vec3 sunDirection;
   uniform float uViewMode; // 0.0=day 1.0=night 2.0=live
+  uniform float uAtmosphereBoost; // Boost atmosphere glow on close pass
 
   varying vec2 vUv;
   varying vec3 vWorldNormal;
@@ -107,13 +108,13 @@ export const earthFragmentShader = `
     // 3. ATMOSPHERIC RIM — only on the sunlit limb
     // ================================================================
     float NdotV  = clamp(dot(normal, viewDir), 0.0, 1.0);
-    float fresnel = pow(1.0 - NdotV, 5.0);
+    float fresnel = pow(1.0 - NdotV, 4.5);
     // Gate: rim appears only where sun hits the edge (not on dark side)
     float rimGate = smoothstep(-0.1, 0.25, NdotL);
-    vec3 rimCore  = vec3(0.37, 0.76, 1.0);
-    vec3 rimOuter = vec3(0.24, 0.66, 0.96);
-    vec3 rimColor = mix(rimOuter, rimCore, pow(fresnel, 1.5));
-    vec3 atmosphereRim = rimColor * fresnel * rimGate * 1.4;
+    vec3 rimCore  = vec3(0.40, 0.80, 1.0);
+    vec3 rimOuter = vec3(0.20, 0.60, 0.98);
+    vec3 rimColor = mix(rimOuter, rimCore, pow(fresnel, 1.2));
+    vec3 atmosphereRim = rimColor * fresnel * rimGate * 1.5 * uAtmosphereBoost;
 
     // ================================================================
     // 4. COMBINE BASED ON VIEW MODE

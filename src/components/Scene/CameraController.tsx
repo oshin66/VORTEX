@@ -5,33 +5,57 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { useSimulationStore } from '../../store/useSimulationStore';
 
-// Default cinematic position: Earth slightly off-center, close
-const DEFAULT_POS  = new THREE.Vector3(0, 0, 2.0);
-// Explore position: angled slightly below, close — reveals curved limb like photo
-const EXPLORE_POS  = new THREE.Vector3(0.3, -0.6, 1.65);
+// Default wide cinematic view
+const DEFAULT_POS    = new THREE.Vector3(0, 0, 2.0);
+const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
+
+// Explore mode target geometry: low altitude (dist = 1.15x R), angled looking slightly below center
+// so top edge of globe forms a prominent curved horizon in upper 1/3 of screen
+const EXPLORE_TARGET_Y = -0.65;
+const EXPLORE_RADIUS_XZ = 0.95; // dist to center = sqrt(0.65^2 + 0.95^2) = 1.151 R
+const EXPLORE_LOOKAT    = new THREE.Vector3(0, -0.22, 0);
+
+// Cubic easing curve for weighty, cinematic motion
+function easeInOutCubic(x: number): number {
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
 
 export function CameraController() {
   const { camera } = useThree();
   const controlsRef = useRef<OrbitControlsImpl>(null);
-  const isExploring = useSimulationStore((s) => s.isExploring);
 
-  // Track current animated target so we can lerp smoothly
-  const targetPos = useRef(DEFAULT_POS.clone());
-  const isTransitioning = useRef(false);
+  const isExploring = useSimulationStore((s) => s.isExploring);
+  const setIsAnimating = useSimulationStore((s) => s.setIsAnimating);
+
+  // Animation state refs
+  const isAnimatingRef = useRef(false);
+  const animTimeRef = useRef(0);
+  const ANIM_DURATION = 2.2; // total seconds for full transition
+
+  // Animation start/end parameters
+  const startPosRef = useRef(new THREE.Vector3());
+  const startTargetRef = useRef(new THREE.Vector3());
+  const startAngleRef = useRef(0);
+  const targetAngleRef = useRef(0);
+  const targetRadiusXZRef = useRef(0.95);
+  const targetYRef = useRef(0);
+  const targetLookAtRef = useRef(new THREE.Vector3());
 
   useEffect(() => {
-    // Initial cinematic camera position
+    // Initial camera setup
     const initCamera = () => {
       if (camera instanceof THREE.PerspectiveCamera) {
         camera.fov = 50;
         camera.position.copy(DEFAULT_POS);
-        camera.lookAt(new THREE.Vector3(0, 0, 0));
+        camera.lookAt(DEFAULT_TARGET);
         camera.updateProjectionMatrix();
         if (controlsRef.current) {
-          controlsRef.current.target.set(0, 0, 0);
+          controlsRef.current.target.copy(DEFAULT_TARGET);
+          controlsRef.current.enabled = true;
           controlsRef.current.update();
         }
-        isTransitioning.current = false;
+        isAnimatingRef.current = false;
+        setIsAnimating(false);
       }
     };
 
@@ -43,31 +67,102 @@ export function CameraController() {
 
     window.addEventListener('reset-camera', handleReset);
     return () => window.removeEventListener('reset-camera', handleReset);
-  }, [camera]);
+  }, [camera, setIsAnimating]);
 
-  // When explore mode changes, set the target we want to lerp toward
+  // Trigger animation whenever isExploring changes
   useEffect(() => {
-    targetPos.current = isExploring ? EXPLORE_POS.clone() : DEFAULT_POS.clone();
-    isTransitioning.current = true;
-  }, [isExploring]);
-
-  useFrame(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
 
-    if (isTransitioning.current) {
-      // Smoothly lerp camera position toward the target
-      const lerpSpeed = 0.04; // lower = smoother / slower
-      camera.position.lerp(targetPos.current, lerpSpeed);
-      camera.lookAt(0, 0, 0);
+    // Capture current start state
+    startPosRef.current.copy(camera.position);
+    if (controlsRef.current) {
+      startTargetRef.current.copy(controlsRef.current.target);
+    } else {
+      startTargetRef.current.copy(DEFAULT_TARGET);
+    }
+
+    const currentRadiusXZ = Math.sqrt(
+      camera.position.x * camera.position.x + camera.position.z * camera.position.z
+    );
+    const currentAngle = Math.atan2(camera.position.x, camera.position.z);
+    startAngleRef.current = currentAngle;
+
+    if (isExploring) {
+      // Transitioning to Explore Mode
+      targetAngleRef.current = currentAngle + Math.PI * 0.35; // orbital spin angle
+      targetYRef.current = EXPLORE_TARGET_Y;
+      targetRadiusXZRef.current = EXPLORE_RADIUS_XZ;
+      targetLookAtRef.current.copy(EXPLORE_LOOKAT);
+    } else {
+      // Transitioning back to Default Mode
+      targetAngleRef.current = currentAngle - Math.PI * 0.35;
+      targetYRef.current = DEFAULT_POS.y;
+      targetRadiusXZRef.current = Math.sqrt(DEFAULT_POS.x * DEFAULT_POS.x + DEFAULT_POS.z * DEFAULT_POS.z);
+      targetLookAtRef.current.copy(DEFAULT_TARGET);
+    }
+
+    // Lock OrbitControls during transition
+    if (controlsRef.current) {
+      controlsRef.current.enabled = false;
+    }
+
+    animTimeRef.current = 0;
+    isAnimatingRef.current = true;
+    setIsAnimating(true);
+  }, [isExploring, camera, setIsAnimating]);
+
+  useFrame((_, delta) => {
+    if (!isAnimatingRef.current || !(camera instanceof THREE.PerspectiveCamera)) return;
+
+    animTimeRef.current += delta;
+    const rawProgress = Math.min(animTimeRef.current / ANIM_DURATION, 1.0);
+
+    // Two-stage motion curve:
+    // 1. Rotation phase leads slightly (completes in first 80% of progress)
+    const rotateProgress = easeInOutCubic(Math.min(rawProgress / 0.80, 1.0));
+    // 2. Zoom/descend phase spans the full duration smoothly
+    const descendProgress = easeInOutCubic(rawProgress);
+
+    // Interpolate spherical orbit coordinates
+    const startRadiusXZ = Math.sqrt(
+      startPosRef.current.x * startPosRef.current.x + startPosRef.current.z * startPosRef.current.z
+    );
+    const currentAngle = THREE.MathUtils.lerp(startAngleRef.current, targetAngleRef.current, rotateProgress);
+    const currentRadiusXZ = THREE.MathUtils.lerp(startRadiusXZ, targetRadiusXZRef.current, descendProgress);
+    const currentY = THREE.MathUtils.lerp(startPosRef.current.y, targetYRef.current, descendProgress);
+
+    // Update camera position
+    camera.position.set(
+      currentRadiusXZ * Math.sin(currentAngle),
+      currentY,
+      currentRadiusXZ * Math.cos(currentAngle)
+    );
+
+    // Interpolate look-at target
+    const currentTarget = new THREE.Vector3().lerpVectors(
+      startTargetRef.current,
+      targetLookAtRef.current,
+      descendProgress
+    );
+
+    camera.lookAt(currentTarget);
+
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(currentTarget);
+      controlsRef.current.update();
+    }
+
+    // Check completion
+    if (rawProgress >= 1.0) {
+      isAnimatingRef.current = false;
+      setIsAnimating(false);
 
       if (controlsRef.current) {
-        controlsRef.current.target.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+        controlsRef.current.enabled = true; // Re-enable OrbitControls for free viewing!
+        controlsRef.current.target.copy(targetLookAtRef.current);
+        controlsRef.current.minDistance = 1.05;
+        controlsRef.current.maxDistance = 6.0;
         controlsRef.current.update();
-      }
-
-      // Stop transitioning once we are close enough to the target
-      if (camera.position.distanceTo(targetPos.current) < 0.01) {
-        isTransitioning.current = false;
       }
     }
   });
@@ -81,13 +176,9 @@ export function CameraController() {
       enableDamping={true}
       dampingFactor={0.1}
       autoRotate={false}
-      minDistance={1.4}
+      minDistance={1.05}
       maxDistance={6.0}
-      target={new THREE.Vector3(0, 0, 0)}
-      onStart={() => {
-        // If the user interacts with the camera, stop the programmatic transition immediately
-        isTransitioning.current = false;
-      }}
+      target={DEFAULT_TARGET}
     />
   );
 }
