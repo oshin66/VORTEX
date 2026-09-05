@@ -9,12 +9,13 @@ import { useSimulationStore } from '../../store/useSimulationStore';
 const DEFAULT_POS    = new THREE.Vector3(0, 0, 2.0);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
 
-// Explore mode target geometry: 
-// Significantly angled upwards at Y = +1.35 so the Earth moves way down
-// into the lower portion of the screen with massive spacious sky room above.
-const EXPLORE_TARGET_Y = -0.55;
-const EXPLORE_RADIUS_XZ = 1.75; // dist to center = sqrt(0.55^2 + 1.75^2) = 1.83 R
-const EXPLORE_LOOKAT    = new THREE.Vector3(0, 1.35, 0);
+// Explore mode target geometry matching reference image:
+// Low altitude (dist = 1.31x R), angled looking at the horizon limb (Y = -0.18)
+// so the curved horizon forms a gentle arc in the bottom 35% of the viewport,
+// with the top 65% as dark starry space.
+const EXPLORE_TARGET_Y  = -0.58;
+const EXPLORE_RADIUS_XZ = 1.18; // dist to center = sqrt(0.58^2 + 1.18^2) = 1.315 R
+const EXPLORE_LOOKAT    = new THREE.Vector3(0, -0.18, 0);
 
 // Cubic easing curve for weighty, cinematic motion
 function easeInOutCubic(x: number): number {
@@ -96,14 +97,14 @@ export function CameraController() {
     startAngleRef.current = currentAngle;
 
     if (isExploring) {
-      // Transitioning to Explore Mode
-      targetAngleRef.current = currentAngle + Math.PI * 0.35; // orbital spin angle
+      // Transitioning to Explore Mode: gentle natural orbital drift to sunlit limb view
+      targetAngleRef.current = currentAngle + Math.PI * 0.15;
       targetYRef.current = EXPLORE_TARGET_Y;
       targetRadiusXZRef.current = EXPLORE_RADIUS_XZ;
       targetLookAtRef.current.copy(EXPLORE_LOOKAT);
     } else {
       // Transitioning back to Default Mode
-      targetAngleRef.current = currentAngle - Math.PI * 0.35;
+      targetAngleRef.current = currentAngle - Math.PI * 0.15;
       targetYRef.current = DEFAULT_POS.y;
       targetRadiusXZRef.current = Math.sqrt(DEFAULT_POS.x * DEFAULT_POS.x + DEFAULT_POS.z * DEFAULT_POS.z);
       targetLookAtRef.current.copy(DEFAULT_TARGET);
@@ -168,7 +169,7 @@ export function CameraController() {
       if (controlsRef.current) {
         controlsRef.current.enabled = true; // Re-enable OrbitControls for free viewing!
         controlsRef.current.target.copy(targetLookAtRef.current);
-        controlsRef.current.minDistance = 1.2;
+        controlsRef.current.minDistance = 1.15;
         controlsRef.current.maxDistance = 6.0;
         controlsRef.current.update();
       }
@@ -184,7 +185,7 @@ export function CameraController() {
       enableDamping={true}
       dampingFactor={0.1}
       autoRotate={false}
-      minDistance={1.2}
+      minDistance={1.15}
       maxDistance={6.0}
       target={DEFAULT_TARGET}
     />
