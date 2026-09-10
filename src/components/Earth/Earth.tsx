@@ -14,8 +14,10 @@ export function Earth() {
   const earthRef      = useRef<THREE.Mesh>(null);
   const earthMatRef   = useRef<THREE.ShaderMaterial>(null);
   const isPaused = useSimulationStore((state) => state.isPaused);
+  const isExploring = useSimulationStore((state) => state.isExploring);
   // Manual rotation reference (radians)
   const rotationRef = useRef(0);
+  const currentScaleRef = useRef(1.0);
 
 
   useLayoutEffect(() => {
@@ -60,10 +62,15 @@ export function Earth() {
       u.uAtmosphereBoost.value = atmosphereBoost;
     }
 
-    // ── Smooth Earth rotation (full turn ≈90 s) ──
+    // ── Smooth Earth rotation (full turn ≈90 s) + Explore scale ──
     if (earthRef.current) {
        rotationRef.current += delta * (2 * Math.PI / 90); // ~1 full rotation every 90 s
       earthRef.current.rotation.y = rotationRef.current;
+
+      // Scale up slightly during explore mode to stretch horizontal width edge-to-edge
+      const targetScale = isExploring ? 1.35 : 1.0;
+      currentScaleRef.current = THREE.MathUtils.lerp(currentScaleRef.current, targetScale, delta * 2.5);
+      earthRef.current.scale.setScalar(currentScaleRef.current);
 
       // Slow cloud drift
       if (cloudsMap.wrapS !== THREE.RepeatWrapping) {

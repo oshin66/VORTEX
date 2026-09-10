@@ -72,8 +72,8 @@ export const earthFragmentShader = `
     vec3 shadowTint = vec3(0.08, 0.10, 0.18);
     vec3 dayShadow  = dayBase * shadowTint;
     
-    // Lit side: slightly dimmed for realism
-    vec3 dayLit  = dayBase * 0.88 + vec3(specular);
+    // Lit side: dimmed down for reduced overall brightness
+    vec3 dayLit  = dayBase * 0.65 + vec3(specular * 0.7);
     vec3 dayFace = mix(dayShadow, dayLit, terminator);
 
     // ================================================================
@@ -85,24 +85,29 @@ export const earthFragmentShader = `
     float oceanLit   = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * 0.15;
     vec3 oceanColor  = mix(oceanDark, oceanLight, oceanLit);
     
-    vec3 landColor   = vec3(0.22, 0.25, 0.18) * 0.12;
+    vec3 landColor   = vec3(0.22, 0.25, 0.18) * 0.10;
     vec3 nightSurface = mix(landColor, oceanColor, smoothstep(0.0, 0.1, specStr));
     
     vec3 cloudTintN  = vec3(0.82, 0.85, 0.88);
-    nightSurface = mix(nightSurface, cloudTintN, cloudMask * 0.30);
+    nightSurface = mix(nightSurface, cloudTintN, cloudMask * 0.25);
 
-    // City lights — only on the dark side (fade out on the lit side)
+    // City lights — tweaked for larger clusters, smoother falloff, and warmer gold
     float rawLum     = dot(nightColor, vec3(0.299, 0.587, 0.114));
-    float cityMask   = smoothstep(0.15, 0.50, rawLum);
+    // Lower start threshold expands the visible light spread for all countries
+    float cityMask   = smoothstep(0.04, 0.60, rawLum);
     float nightGate  = 1.0 - smoothstep(-0.1, 0.2, NdotL); // fade lights in shadow
-    vec3 sparseCity  = vec3(0.7, 0.4, 0.1); 
-    vec3 midCity     = vec3(1.0, 0.78, 0.3); 
-    vec3 coreCity    = vec3(1.0, 0.87, 0.54); 
+    
+    // Warmer, richer amber-gold palette
+    vec3 sparseCity  = vec3(0.85, 0.40, 0.1); 
+    vec3 midCity     = vec3(1.0, 0.76, 0.32);  // Rich amber-gold (#FFC251)
+    vec3 coreCity    = vec3(1.0, 0.95, 0.65);  // Very bright cores
     vec3 cityColorMap = mix(mix(sparseCity, midCity, smoothstep(0.0, 0.5, cityMask)), coreCity, smoothstep(0.5, 1.0, cityMask));
-    float cityIntensity = pow(cityMask, 1.2) * 5.0 * nightGate;
+    
+    // Lower exponent softens the harsh edges, higher multiplier boosts brightness
+    float cityIntensity = pow(cityMask, 0.9) * 4.2 * nightGate;
     nightSurface += cityColorMap * cityIntensity;
     
-    vec3 nightFace = nightSurface;
+    vec3 nightFace = nightSurface * 0.75;
 
     // ================================================================
     // 3. ATMOSPHERIC RIM — only on the sunlit limb

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Satellite — Three.js</title>
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#000; width:100%; height:100%; }
+  canvas { display:block; touch-action:none; }
+  #hud {
+    position:fixed; left:18px; bottom:16px; z-index:5;
+    font-family: 'Courier New', monospace; color:rgba(200,220,255,0.55);
+    font-size:11px; letter-spacing:1px; line-height:1.6; pointer-events:none;
+    text-shadow: 0 0 6px rgba(80,140,255,0.4);
+  }
+  #hud .tag { color:rgba(140,190,255,0.35); }
+  #loading {
+    position:fixed; inset:0; background:#000; z-index:10;
+    display:flex; align-items:center; justify-content:center;
+    font-family: 'Courier New', monospace; color:rgba(160,190,255,0.6);
+    font-size:12px; letter-spacing:2px;
+  }
+</style>
+</head>
+<body>
+<div id="loading">INITIALIZING SATELLITE MODEL…</div>
+<div id="hud">
+  <div><span class="tag">OBJ//</span> KH-11 CLASS RECON PLATFORM (PROCEDURAL)</div>
+  <div><span class="tag">STATUS//</span> NOMINAL &nbsp; <span class="tag">ALT//</span> 705 KM &nbsp; <span class="tag">DRAG TO ORBIT · SCROLL TO ZOOM</span></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+// ---------------------------------------------------------------
+// RENDERER / SCENE / CAMERA
+// ---------------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.05, 500);
+camera.position.set(7.5, 2.6, 8.5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 4;
+controls.maxDistance = 40;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.6;
+controls.target.set(0, 0, 0);
+
+// ---------------------------------------------------------------
+// LIGHTING — harsh sun + faint blue earthshine fill + rim
+// ---------------------------------------------------------------
+const sun = new THREE.DirectionalLight(0xfff4e0, 4.2);
+sun.position.set(10, 6, 4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 40;
+sun.shadow.camera.left = -6; sun.shadow.camera.right = 6;
+sun.shadow.camera.top = 6; sun.shadow.camera.bottom = -6;
+sun.shadow.bias = -0.0015;
+scene.add(sun);
+
+const earthshine = new THREE.DirectionalLight(0x4a72ff, 0.55);
+earthshine.position.set(-8, -4, -6);
+scene.add(earthshine);
+
+const rim = new THREE.DirectionalLight(0x8fb4ff, 1.1);
+rim.position.set(-6, 3, -8);
+scene.add(rim);
+
+scene.add(new THREE.AmbientLight(0x0b1330, 0.5));
+
+// ---------------------------------------------------------------
+// STARFIELD + FAINT MILKY WAY HAZE
+// ---------------------------------------------------------------
+function buildStars(count, radius, size, colorLow, colorHigh) {
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const c1 = new THREE.Color(colorLow), c2 = new THREE.Color(colorHigh);
+  for (let i = 0; i < count; i++) {
+    const r = radius * (0.6 + Math.random() * 0.4);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i*3+2] = r * Math.cos(phi);
+    const c = c1.clone().lerp(c2, Math.random());
+    colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({
+    size, vertexColors: true, transparent: true, opacity: 0.95,
+    sizeAttenuation: true, depthWrite: false
+  });
+  return new THREE.Points(geo, mat);
+}
+scene.add(buildStars(6000, 120, 0.09, 0x8fa5ff, 0xffffff));
+scene.add(buildStars(1200, 90, 0.22, 0xffe6c2, 0xffffff));
+
+// ---------------------------------------------------------------
+// PROCEDURAL TEXTURES
+// ---------------------------------------------------------------
+function canvasTex(draw, w=512, h=512) {
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  draw(ctx, w, h);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Gold MLI foil: crinkled metallic gold with irregular creases
+function makeFoilTextures() {
+  const w=512, h=512;
+  const colorCv = document.createElement('canvas'); colorCv.width=w; colorCv.height=h;
+  const bumpCv = document.createElement('canvas'); bumpCv.width=w; bumpCv.height=h;
+  const cctx = colorCv.getContext('2d');
+  const bctx = bumpCv.getContext('2d');
+
+  const grad = cctx.createLinearGradient(0,0,w,h);
+  grad.addColorStop(0, '#8a6a2a');
+  grad.addColorStop(0.5, '#d9b054');
+  grad.addColorStop(1, '#6e5220');
+  cctx.fillStyle = grad; cctx.fillRect(0,0,w,h);
+  bctx.fillStyle = '#808080'; bctx.fillRect(0,0,w,h);
+
+  // random crease lines (foil wrinkles)
+  for (let i=0;i<140;i++) {
+    const x1 = Math.random()*w, y1 = Math.random()*h;
+    const ang = Math.random()*Math.PI*2;
+    const len = 20 + Math.random()*90;
+    const x2 = x1 + Math.cos(ang)*len, y2 = y1 + Math.sin(ang)*len;
+    const shade = Math.random()>0.5 ? 'rgba(255,235,190,0.28)' : 'rgba(40,28,8,0.32)';
+    cctx.strokeStyle = shade; cctx.lineWidth = 0.6 + Math.random()*1.8;
+    cctx.beginPath(); cctx.moveTo(x1,y1); cctx.lineTo(x2,y2); cctx.stroke();
+
+    const bshade = Math.random()>0.5 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
+    bctx.strokeStyle = bshade; bctx.lineWidth = 0.6 + Math.random()*1.8;
+    bctx.beginPath(); bctx.moveTo(x1,y1); bctx.lineTo(x2,y2); bctx.stroke();
+  }
+  // fine noise speckle
+  const img = cctx.getImageData(0,0,w,h);
+  for (let i=0;i<img.data.length;i+=4) {
+    const n = (Math.random()-0.5)*18;
+    img.data[i]+=n; img.data[i+1]+=n*0.85; img.data[i+2]+=n*0.5;
+  }
+  cctx.putImageData(img,0,0);
+
+  const colorTex = new THREE.CanvasTexture(colorCv);
+  colorTex.colorSpace = THREE.SRGBColorSpace;
+  const bumpTex = new THREE.CanvasTexture(bumpCv);
+  [colorTex, bumpTex].forEach(t => { t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(2,2); });
+  return { colorTex, bumpTex };
+}
+
+// Solar cell array texture (dark blue-violet grid of cells)
+function makeSolarTex() {
+  return canvasTex((ctx,w,h) => {
+    ctx.fillStyle = '#060912'; ctx.fillRect(0,0,w,h);
+    const cols = 6, rows = 14;
+    const cw = w/cols, ch = h/rows;
+    for (let r=0;r<rows;r++) {
+      for (let c=0;c<cols;c++) {
+        const x = c*cw, y = r*ch;
+        const g = ctx.createLinearGradient(x,y,x+cw,y+ch);
+        const base = 20 + Math.random()*14;
+        g.addColorStop(0, `rgb(${base+18},${base+26},${base+70})`);
+        g.addColorStop(0.5, `rgb(${base+40},${base+55},${base+120})`);
+        g.addColorStop(1, `rgb(${base+10},${base+18},${base+55})`);
+        ctx.fillStyle = g;
+        ctx.fillRect(x+1.4, y+1.4, cw-2.8, ch-2.8);
+        // diagonal cell sheen
+        ctx.strokeStyle = 'rgba(180,200,255,0.12)';
+        ctx.beginPath(); ctx.moveTo(x+2,y+ch-2); ctx.lineTo(x+cw-2,y+2); ctx.stroke();
+      }
+    }
+    // busbar grid lines
+    ctx.strokeStyle = 'rgba(200,215,255,0.55)';
+    ctx.lineWidth = 1.4;
+    for (let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*cw,0); ctx.lineTo(c*cw,h); ctx.stroke(); }
+    for (let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0,r*ch); ctx.lineTo(w,r*ch); ctx.stroke(); }
+  }, 256, 512);
+}
+
+// Brushed aluminum panel texture
+function makeBrushedTex() {
+  return canvasTex((ctx,w,h) => {
+    ctx.fillStyle = '#b7bcc4'; ctx.fillRect(0,0,w,h);
+    for (let i=0;i<4000;i++) {
+      const y = Math.random()*h;
+      ctx.strokeStyle = `rgba(${Math.random()>0.5?255:0},${Math.random()>0.5?255:0},${Math.random()>0.5?255:0},0.035)`;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y+ (Math.random()-0.5)*2); ctx.stroke();
+    }
+  }, 256, 256);
+}
+
+const foil = makeFoilTextures();
+const solarTex = makeSolarTex();
+const brushedTex = makeBrushedTex();
+
+// ---------------------------------------------------------------
+// MATERIALS
+// ---------------------------------------------------------------
+const matGoldFoil = new THREE.MeshStandardMaterial({
+  map: foil.colorTex, bumpMap: foil.bumpTex, bumpScale: 0.015,
+  metalness: 0.9, roughness: 0.38, envMapIntensity: 1.4
+});
+const matAluminum = new THREE.MeshStandardMaterial({
+  map: brushedTex, metalness: 0.85, roughness: 0.32, color: 0xdfe3e8
+});
+const matDarkMetal = new THREE.MeshStandardMaterial({ color: 0x1c1e22, metalness: 0.8, roughness: 0.45 });
+const matWhitePanel = new THREE.MeshStandardMaterial({ color: 0xf2f2ef, metalness: 0.15, roughness: 0.55 });
+const matSolar = new THREE.MeshStandardMaterial({ map: solarTex, metalness: 0.55, roughness: 0.28, envMapIntensity: 1.1 });
+const matLens = new THREE.MeshPhysicalMaterial({
+  color: 0x03040a, metalness: 0.1, roughness: 0.05,
+  clearcoat: 1, clearcoatRoughness: 0.05, reflectivity: 1, envMapIntensity: 2
+});
+const matGoldFoilTrim = new THREE.MeshStandardMaterial({ color: 0xd8ab4e, metalness: 0.95, roughness: 0.28 });
+
+// simple studio-ish environment map so metals have something to reflect
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envScene = new THREE.Scene();
+envScene.background = new THREE.Color(0x02030a);
+const envLight1 = new THREE.Mesh(new THREE.SphereGeometry(30,16,16), new THREE.MeshBasicMaterial({color:0x223055, side:THREE.BackSide}));
+envScene.add(envLight1);
+const envSun = new THREE.Mesh(new THREE.PlaneGeometry(8,8), new THREE.MeshBasicMaterial({color:0xfff2d6}));
+envSun.position.set(15,10,5); envSun.lookAt(0,0,0);
+envScene.add(envSun);
+const envMap = pmrem.fromScene(envScene, 0.04).texture;
+scene.environment = envMap;
+
+// ---------------------------------------------------------------
+// SATELLITE GROUP
+// ---------------------------------------------------------------
+const sat = new THREE.Group();
+scene.add(sat);
+
+function bolt(radius=0.02, height=0.02) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 8), matDarkMetal);
+  return m;
+}
+
+// ---- Main bus (hex-ish body) ----
+const busGroup = new THREE.Group();
+sat.add(busGroup);
+
+const busCore = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 2.6, 12, 1, false), matGoldFoil);
+busCore.rotation.z = Math.PI/2;
+busCore.castShadow = busCore.receiveShadow = true;
+busGroup.add(busCore);
+
+// dark collar rings around bus
+[-1.15, -0.4, 0.4, 1.15].forEach(x => {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.64, 0.035, 8, 24), matAluminum);
+  ring.rotation.y = Math.PI/2; ring.position.x = x;
+  ring.castShadow = true;
+  busGroup.add(ring);
+});
+
+// aft aluminum module
+const aftModule = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.66, 0.9, 12), matAluminum);
+aftModule.rotation.z = Math.PI/2; aftModule.position.x = -1.75;
+aftModule.castShadow = aftModule.receiveShadow = true;
+busGroup.add(aftModule);
+
+// thruster cluster on aft
+for (let i=0;i<4;i++) {
+  const ang = (i/4)*Math.PI*2;
+  const th = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.13,0.22,10), matDarkMetal);
+  th.rotation.z = Math.PI/2;
+  th.position.set(-2.25, Math.cos(ang)*0.42, Math.sin(ang)*0.42);
+  th.castShadow = true;
+  busGroup.add(th);
+}
+
+// forward sensor barrel (the big "lens")
+const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.66, 1.1, 16), matAluminum);
+barrel.rotation.z = Math.PI/2; barrel.position.x = 1.85;
+barrel.castShadow = barrel.receiveShadow = true;
+busGroup.add(barrel);
+
+// concentric lens rings for depth
+for (let i=0;i<5;i++) {
+  const rr = 0.62 - i*0.1;
+  const lensRing = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.018, 8, 32), i%2===0?matDarkMetal:matAluminum);
+  lensRing.rotation.y = Math.PI/2; lensRing.position.x = 2.36 - i*0.05;
+  busGroup.add(lensRing);
+}
+const lensGlass = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32, 0, Math.PI*2, 0, Math.PI/2), matLens);
+lensGlass.rotation.z = -Math.PI/2; lensGlass.position.x = 2.42;
+busGroup.add(lensGlass);
+
+// small greeble boxes + bolts on the bus
+for (let i=0;i<10;i++) {
+  const bx = new THREE.Mesh(new THREE.BoxGeometry(0.1+Math.random()*0.12, 0.06, 0.08), matAluminum);
+  const ang = Math.random()*Math.PI*2;
+  bx.position.set(-1.0+Math.random()*1.6, Math.cos(ang)*0.66, Math.sin(ang)*0.66);
+  bx.lookAt(bx.position.clone().multiplyScalar(2));
+  bx.castShadow = true;
+  busGroup.add(bx);
+}
+
+// ---------------------------------------------------------------
+// DISH ANTENNA (parabolic, offset above bus on a mast)
+// ---------------------------------------------------------------
+const dishGroup = new THREE.Group();
+dishGroup.position.set(0.3, 0.85, 0);
+busGroup.add(dishGroup);
+
+const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.5, 8), matDarkMetal);
+mast.position.y = -0.25;
+dishGroup.add(mast);
+
+// parabola profile via Lathe
+const profilePts = [];
+for (let i=0;i<=14;i++) {
+  const t = i/14;
+  const r = t*0.62;
+  const y = r*r*0.55; // parabolic curve
+  profilePts.push(new THREE.Vector2(r, y));
+}
+const dishGeo = new THREE.LatheGeometry(profilePts, 40);
+const dishMesh = new THREE.Mesh(dishGeo, matAluminum);
+dishMesh.rotation.x = Math.PI; // face outward
+dishMesh.castShadow = dishMesh.receiveShadow = true;
+dishGroup.add(dishMesh);
+
+// dish mesh grid overlay (thin torus rings to suggest wire mesh dish)
+for (let i=1;i<=4;i++) {
+  const rr = i*0.62/4;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.004, 6, 40), matDarkMetal);
+  ring.position.y = rr*rr*0.55;
+  dishGroup.add(ring);
+}
+
+// feed horn at focal point
+const feedArm = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,0.62,6), matDarkMetal);
+feedArm.position.set(0,0.34,0.32);
+feedArm.rotation.x = Math.atan2(0.62,0.68);
+dishGroup.add(feedArm);
+const feedHorn = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.14,10), matAluminum);
+feedHorn.position.set(0,0.55,0.6);
+feedHorn.rotation.x = Math.PI;
+dishGroup.add(feedHorn);
+
+// gimbal base ball
+const gimbal = new THREE.Mesh(new THREE.SphereGeometry(0.08,12,12), matDarkMetal);
+gimbal.position.y = -0.5;
+dishGroup.add(gimbal);
+
+// ---------------------------------------------------------------
+// WHIP ANTENNAS + SMALL SENSORS
+// ---------------------------------------------------------------
+for (let i=0;i<3;i++) {
+  const whip = new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.9+Math.random()*0.4,6), matDarkMetal);
+  whip.position.set(-0.6+i*0.4, 0.66, 0.1);
+  whip.rotation.z = (Math.random()-0.5)*0.5;
+  whip.rotation.x = (Math.random()-0.5)*0.3;
+  busGroup.add(whip);
+}
+
+// star-tracker box
+const starTracker = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.22), matDarkMetal);
+starTracker.position.set(-0.3,0.6,-0.4);
+starTracker.lookAt(starTracker.position.clone().add(new THREE.Vector3(0,1,-0.6)));
+busGroup.add(starTracker);
+const trackerLens = new THREE.Mesh(new THREE.CircleGeometry(0.045,16), matLens);
+trackerLens.position.set(-0.3,0.66,-0.5);
+trackerLens.lookAt(trackerLens.position.clone().add(new THREE.Vector3(0,0.6,-1)));
+busGroup.add(trackerLens);
+
+// white radiator panels flanking bus
+[1,-1].forEach(s => {
+  const rad = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.02,0.55), matWhitePanel);
+  rad.position.set(-0.1, s*0.64, 0);
+  rad.rotation.x = 0;
+  busGroup.add(rad);
+});
+
+// ---------------------------------------------------------------
+// SOLAR ARRAYS (two wings, each a boom + hinge trusses + panel segments)
+// ---------------------------------------------------------------
+function buildSolarWing(sign) {
+  const wing = new THREE.Group();
+
+  // root yoke connecting to bus
+  const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.3), matAluminum);
+  yoke.position.set(-0.15, sign*0.78, 0);
+  wing.add(yoke);
+
+  const panelCount = 4;
+  const panelLen = 0.95, panelW = 0.62, gap = 0.045;
+  const totalLen = panelCount*panelLen + (panelCount-1)*gap;
+
+  for (let i=0;i<panelCount;i++) {
+    const py = sign*(0.78 + 0.16 + i*(panelLen+gap) + panelLen/2);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelLen-0.03, 0.02), matSolar);
+    panel.position.set(-0.15, py, 0);
+    panel.castShadow = panel.receiveShadow = true;
+    wing.add(panel);
+
+    // thin aluminum frame edge
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(panelW+0.02, panelLen-0.01, 0.015), new THREE.MeshStandardMaterial({color:0x9aa0a8, metalness:0.8, roughness:0.35}));
+    frame.position.copy(panel.position); frame.position.z -= 0.012;
+    wing.add(frame);
+
+    // triangular truss hinge between segments (visible gap struts)
+    if (i < panelCount-1) {
+      const hingeY = sign*(0.78 + 0.16 + i*(panelLen+gap) + panelLen + gap/2);
+      [-1,1].forEach(zs => {
+        const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,panelW*0.55,6), matDarkMetal);
+        strut.rotation.z = Math.PI/2;
+        strut.position.set(-0.15, hingeY, zs*0.02);
+        wing.add(strut);
+      });
+    }
+  }
+
+  // deployment truss triangle at root (matches reference video's white triangular struts)
+  const trussMat = new THREE.MeshStandardMaterial({color:0xe8e8e2, metalness:0.4, roughness:0.5});
+  const trussPts = [
+    new THREE.Vector3(-0.15, sign*0.78, 0),
+    new THREE.Vector3(0.05, sign*1.05, 0.22),
+    new THREE.Vector3(-0.15, sign*1.05, 0)
+  ];
+  for (let i=0;i<trussPts.length;i++) {
+    const a = trussPts[i], b = trussPts[(i+1)%trussPts.length];
+    const dir = new THREE.Vector3().subVectors(b,a);
+    const len = dir.length();
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,len,6), trussMat);
+    strut.position.copy(a).addScaledVector(dir,0.5);
+    strut.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+    wing.add(strut);
+  }
+  const trussPts2 = trussPts.map(p => p.clone().multiply(new THREE.Vector3(1,1,-1)));
+  for (let i=0;i<trussPts2.length;i++) {
+    const a = trussPts2[i], b = trussPts2[(i+1)%trussPts2.length];
+    const dir = new THREE.Vector3().subVectors(b,a);
+    const len = dir.length();
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,len,6), trussMat);
+    strut.position.copy(a).addScaledVector(dir,0.5);
+    strut.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+    wing.add(strut);
+  }
+
+  wing.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return wing;
+}
+
+busGroup.add(buildSolarWing(1));
+busGroup.add(buildSolarWing(-1));
+
+// slight overall tilt for a nicer default composition
+sat.rotation.set(0.18, 0.5, 0.05);
+
+// ---------------------------------------------------------------
+// POSTPROCESSING (bloom for sunlit-metal glow)
+// ---------------------------------------------------------------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.5, 0.82);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------
+// RESIZE + LOOP
+// ---------------------------------------------------------------
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+document.getElementById('loading').style.display = 'none';
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  sat.rotation.y += 0.0009; // slow lazy tumble
+  sat.position.y = Math.sin(t*0.25)*0.05;
+  controls.update();
+  composer.render();
+}
+animate();
+</script>
+</body>
+</html>

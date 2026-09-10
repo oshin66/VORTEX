@@ -9,13 +9,12 @@ import { useSimulationStore } from '../../store/useSimulationStore';
 const DEFAULT_POS    = new THREE.Vector3(0, 0, 2.0);
 const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
 
-// Explore mode target geometry matching reference image:
-// Low altitude (dist = 1.31x R), angled looking at the horizon limb (Y = -0.18)
-// so the curved horizon forms a gentle arc in the bottom 35% of the viewport,
-// with the top 65% as dark starry space.
-const EXPLORE_TARGET_Y  = -0.58;
-const EXPLORE_RADIUS_XZ = 1.18; // dist to center = sqrt(0.58^2 + 1.18^2) = 1.315 R
-const EXPLORE_LOOKAT    = new THREE.Vector3(0, -0.18, 0);
+// Explore mode target geometry: 
+// Angled upwards so Earth fills the bottom 40-45% with ~55-60% sky above.
+// EXPLORE_LOOKAT Y is raised to 2.10 to compensate for the 1.35x sphere scale in Earth.tsx.
+const EXPLORE_TARGET_Y = -0.55;
+const EXPLORE_RADIUS_XZ = 1.75;
+const EXPLORE_LOOKAT    = new THREE.Vector3(0, 2.10, 0);
 
 // Cubic easing curve for weighty, cinematic motion
 function easeInOutCubic(x: number): number {
@@ -166,8 +165,11 @@ export function CameraController() {
       isAnimatingRef.current = false;
       setIsAnimating(false);
 
+      const currentlyExploring = useSimulationStore.getState().isExploring;
       if (controlsRef.current) {
-        controlsRef.current.enabled = true; // Re-enable OrbitControls for free viewing!
+        // Only re-enable orbit controls when returning to default view,
+        // keep them locked in Explore mode to preserve the framed composition
+        controlsRef.current.enabled = !currentlyExploring;
         controlsRef.current.target.copy(targetLookAtRef.current);
         controlsRef.current.minDistance = 1.15;
         controlsRef.current.maxDistance = 6.0;
